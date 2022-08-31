@@ -20,24 +20,9 @@ def rgb2ycbcr(im):
     g: torch.Tensor = im[1,:,:]
     b: torch.Tensor = im[2,:,:]
 
-    print('rgb2ycbcr')
-    print(r.shape)
-    print(r)
-    print(g.shape)
-    print(g)
-    print(b.shape)
-    print(b)
-
     y: torch.Tensor = .299 * r + .587 * g + .114 * b
     cb: torch.Tensor = 128 - r * 0.1687 - g * 0.3313 + b * 0.5
     cr: torch.Tensor = 128 + r * 0.5 - g * 0.4187 - b * 0.0813 
-
-    print(y.shape)
-    print(y)
-    print(cb.shape)
-    print(cb)
-    print(cr.shape)
-    print(cr)
     
     return y, cb, cr
 
@@ -53,7 +38,6 @@ def ycbcr2rgb(im):
 
     return r, g, b
 
-
 class SuperResolutionPreProcess(nn.Module):
 
     def __init__(self):
@@ -66,22 +50,22 @@ class SuperResolutionPreProcess(nn.Module):
         arr = np.frombuffer(base64.b64decode(img), np.uint8)
         img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
 
-        print(img.shape)
+        #print(img.shape)
 
         if not isinstance(img, torch.Tensor):
             img = torch.tensor(img)
             
-        print(f'Image shape after load {img.shape}')
-        print(f'Text pixel {RGB_img[3,2]}')
+        #print(f'Image shape after load {img.shape}')
+        #print(f'Text pixel {RGB_img[3,2]}')
     
         # Swap channel and pixel axes to input that resize expects
         img = img.permute(2,0,1)
 
-        print(f'C H W image {img}')
+        #print(f'C H W image {img}')
 
         # Resize image to 224x224
         img = self.resize(img)
-        print(f'Image shape after resize {img.shape}')
+        #print(f'Image shape after resize {img.shape}')
 
         display_img = img.permute(1,2,0)
         plt.imshow(display_img)
@@ -91,10 +75,12 @@ class SuperResolutionPreProcess(nn.Module):
 
         ycbcr = torch.stack((y, cb, cr))
         ycbcr = ycbcr.permute(1,2,0).type(torch.uint8)
-        print(f' Clamped {ycbcr}')
-        print(f'ycbcr shape {ycbcr.shape}')
+        #print(f' Clamped {ycbcr}')
+        #print(f'ycbcr shape {ycbcr.shape}')
         plt.imshow(ycbcr)
         plt.show()
+
+        print(f'cb {cb}')
 
         return y, cb, cr
 
@@ -103,21 +89,26 @@ class SuperResolutionPostProcess(nn.Module):
 
     def __init__(self):
         super(SuperResolutionPostProcess, self).__init__()
+        self.resize = transforms.Resize([224*3, 224*3])
 
     def forward(self, y, cb, cr):
 
-        y = y.squeeze()
+        y = y.squeeze().type(torch.uint8)
 
-        print(y.shape)
+        print(f'cb before resize {cb}')
 
         # Resize the cb and cr dimensions
         c = torch.stack((cb, cr)).unsqueeze(0)
-        c = F.interpolate(c, y.size()[0]).squeeze()
 
-        print(c.shape)
+        # Resize image to 224*3 x 224*3
+        c = self.resize(c).squeeze().type(torch.uint8)
 
         # Add the y axes back into the image
         img = torch.cat((c, y.unsqueeze(0)))
+
+        ycbcr = img.permute(1,2,0).type(torch.uint8)
+        plt.imshow(ycbcr)
+        plt.show()
 
         return ycbcr2rgb(img)
 
@@ -140,7 +131,7 @@ class SuperResolutionNet(nn.Module):
         y, cb, cr = self.preprocess(img)
         y = y.unsqueeze(0)
 
-        print(f'y shape after pre process: {y.shape}')
+        #print(f'y shape after pre process: {y.shape}')
 
         y = self.relu(self.conv1(y))
         y = self.relu(self.conv2(y))
@@ -178,11 +169,11 @@ torch_model.eval()
 # load the image
 image = cv2.imread('cat_224x224.jpg')
 
-print(f'Image shape after cv2.imread {image.shape}')
+#print(f'Image shape after cv2.imread {image.shape}')
 RGB_img = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-print(RGB_img.shape)
+#print(RGB_img.shape)
 
-print(f'Text pixel {RGB_img[3,2]}')
+#print(f'Text pixel {RGB_img[3,2]}')
 plt.imshow(RGB_img)
 plt.show()
 
