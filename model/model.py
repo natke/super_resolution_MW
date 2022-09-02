@@ -248,11 +248,6 @@ img = torch_model(data)
 
 show_img(img, 'Final image')
 
-# Export the model to ONNX
-torch.onnx.export()
-
-
-
 
 
 
