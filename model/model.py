@@ -1,16 +1,15 @@
 
+from ctypes.wintypes import RGB
 import torch
 import torch.nn as nn
 import torch.nn.init as init
 import torch.nn.functional as F
 import torch.utils.model_zoo as model_zoo
+import torchvision.transforms as transforms
 import base64
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-
-import torchvision.transforms as transforms
-
 
 # Convert (C H W) RGB image to (C H w) YCbCr image
 def rgb2ycbcr(im):
@@ -20,8 +19,8 @@ def rgb2ycbcr(im):
     b: torch.Tensor = im[2,:,:]
 
     y: torch.Tensor = .299 * r + .587 * g + .114 * b
-    cb: torch.Tensor = 128 - r * 0.1687 - g * 0.3313 + b * 0.5
-    cr: torch.Tensor = 128 + r * 0.5 - g * 0.4187 - b * 0.0813 
+    cb: torch.Tensor = 0.5 - r * 0.1687 - g * 0.3313 + b * 0.5
+    cr: torch.Tensor = 0.5 + r * 0.5 - g * 0.4187 - b * 0.0813 
 
     return y, cb, cr
 
@@ -31,9 +30,9 @@ def ycbcr2rgb(im):
     cb: torch.Tensor = im[1,:,:]
     cr: torch.Tensor = im[2,:,:]
 
-    r = y + 1.402 * cr - 128 * 1.402
-    g = y -  0.3414 * cb + 128 * 0.3414 - 0.71414 * cr + 128 * 0.7141
-    b = y +  1.772 * cb - 128 * 1.772 
+    r = y + 1.402 * cr - 0.5 * 1.402
+    g = y -  0.3414 * cb + 0.5 * 0.3414 - 0.71414 * cr + 0.5 * 0.7141
+    b = y +  1.772 * cb - 0.5 * 1.772 
 
     return r, g, b
 
@@ -89,11 +88,11 @@ def test_ycbcr2rgb():
     print(b)
 
 def img_from_y(y, size):
-    c = torch.full((2, size, size), 128)
+    c = torch.full((2, size[1], size[2]), 0.5)
     return torch.cat((y, c))
 
 def show_img(img, title):
-    print(f'Displaying image: {title}')
+    print(f'Displaying image: {title}')    
     display_img = img.permute(1,2,0)
     plt.imshow(display_img.detach().numpy())
     plt.title(title)
@@ -103,7 +102,6 @@ class SuperResolutionPreProcess(nn.Module):
 
     def __init__(self):
         super(SuperResolutionPreProcess, self).__init__()
-        self.resize = transforms.Resize([224, 224])
 
     # Accepts a base64 encoded image.
     # Returns the 3 channels of the image in YCbCr encoding
@@ -112,24 +110,19 @@ class SuperResolutionPreProcess(nn.Module):
         # Image passed in base64 format from application
         arr = np.frombuffer(base64.b64decode(img), np.uint8)
         img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        img = cv2.normalize(img, None, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_32F)
 
         if not isinstance(img, torch.Tensor):
             img = torch.tensor(img)
-                
-        # Swap channel and pixel axes to input that resize expects
+
+        # Swap channel and pixel axes C H W
         img = img.permute(2,0,1)
 
-        # Resize image to 224x224
-        img = self.resize(img)
-
-        display_img = img.permute(1,2,0)
-        plt.imshow(display_img)
-        plt.title('After resize, before ycbcr')
-        plt.show()
+        show_img(img, 'After normalize, before YCbCr')
 
         y, cb, cr = rgb2ycbcr(img)
 
-        ycbcr = torch.stack((y, cb, cr)).type(torch.uint8)
+        ycbcr = torch.stack((y, cb, cr))
         show_img(ycbcr, 'YCbCr after preprocess')
 
         return y, cb, cr
@@ -139,19 +132,24 @@ class SuperResolutionPostProcess(nn.Module):
 
     def __init__(self):
         super(SuperResolutionPostProcess, self).__init__()
-        self.resize = transforms.Resize([224*3, 224*3])
+
 
     # Accepts the YCbCr channels of the expanded resolution image
     # Returns the RGB channels
     def forward(self, y, cb, cr):
 
-        y = y.squeeze().type(torch.uint8)
+        y = y.squeeze()
 
         # Resize the cb and cr dimensions
         c = torch.stack((cb, cr)).unsqueeze(0)
 
+        print(c.shape)
+
         # Resize image to 224*3 x 224*3
-        c = self.resize(c).squeeze().type(torch.uint8)
+        self.resize = transforms.Resize([c.shape[2]*3, c.shape[3]*3])
+        c = self.resize(c).squeeze()
+
+        print(c.shape)
 
         # Add the y axes back into the image
         img = torch.cat((y.unsqueeze(0), c))
@@ -176,7 +174,8 @@ class SuperResolutionNet(nn.Module):
 
     def forward(self, x):
 
-        img = img_from_y(x, 224).type(torch.uint8)
+        print(x.shape)
+        img = img_from_y(x, x.shape)
         show_img(img, 'Luminance only before super resolution')
 
         x = self.relu(self.conv1(x))
@@ -184,7 +183,7 @@ class SuperResolutionNet(nn.Module):
         x = self.relu(self.conv3(x))
         x = self.pixel_shuffle(self.conv4(x))
 
-        img = img_from_y(x, 672).type(torch.uint8)
+        img = img_from_y(x, x.shape)
         show_img(img, 'Luminance only after super resolution')
 
         return x
@@ -207,7 +206,7 @@ class SuperResolutionPipeline(torch.nn.Module):
         y, cb, cr = self.preprocess(img)
         y = self.net(y.unsqueeze(0))
         r, g, b = self.postprocess(y, cb, cr)
-        return torch.stack((r, g, b)).type(torch.uint8)
+        return torch.stack((r, g, b))
 
 
     def net_model(self):
@@ -235,20 +234,23 @@ torch_model.net_model().load_state_dict(model_zoo.load_url(model_url, map_locati
 torch_model.eval()
 
 # load the image
-image = cv2.imread('test_pattern.jpg')
-
+image = cv2.imread('cat_224x224.jpg')
 RGB_img = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
 plt.imshow(RGB_img)
 plt.title('Original image')
 plt.show()
 
-retval, buffer_img= cv2.imencode('.png', RGB_img)
+retval, buffer_img= cv2.imencode('.jpg', RGB_img)
 data = base64.b64encode(buffer_img)
 
 img = torch_model(data)
 
 show_img(img, 'Final image')
+
+# Export the model to ONNX
+torch.onnx.export()
+
 
 
 
