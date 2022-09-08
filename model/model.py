@@ -1,5 +1,5 @@
 
-from ctypes.wintypes import RGB
+#from ctypes.wintypes import RGB
 import torch
 import torch.nn as nn
 import torch.nn.init as init
@@ -35,61 +35,6 @@ def ycbcr2rgb(im):
     b = y +  1.772 * cb - 0.5 * 1.772 
 
     return r, g, b
-
-def test_ycbcr2rgb():
-
-    # input = torch.tensor([[[255]],[[255]],[[255]]])
-    # y, cb, cr = rgb2ycbcr(input)
-    # print('ycbcr of white')
-    # print(y)
-    # print(cb)
-    # print(cr)
-
-    # input = torch.tensor([[[0]],[[0]],[[0]]])
-    # y, cb, cr = rgb2ycbcr(input)
-    # print('y, cb, cr of black')
-    # print(y)
-    # print(cb)
-    # print(cr)
-
-    # input = torch.tensor([[[255]],[[0]],[[0]]])
-    # y, cb, cr = rgb2ycbcr(input)
-    # print('y, cb, cr of red')
-    # print(y)
-    # print(cb)
-    # print(cr)
-
-    # input = torch.tensor([[[0]],[[255]],[[0]]])
-    # y, cb, cr = rgb2ycbcr(input)
-    # print('y, cb, cr of green')
-    # print(y)
-    # print(cb)
-    # print(cr)
-
-    # input = torch.tensor([[[0]],[[0]],[[255]]])
-    # y, cb, cr = rgb2ycbcr(input)
-    # print('y, cb, cr of blue')
-    # print(y)
-    # print(cb)
-    # print(cr)
-
-    # Random
-    input = torch.tensor([[[70]],[[134]],[[210]]])
-    y, cb, cr = rgb2ycbcr(input)
-    print('y, cb, cr of random')
-    print(y)
-    print(cb)
-    print(cr)
-
-    r, g, b = ycbcr2rgb(torch.stack((y, cb, cr)))
-    print('RGB of random')
-    print(r)
-    print(g)
-    print(b)
-
-def img_from_y(y, size):
-    c = torch.full((2, size[1], size[2]), 0.5)
-    return torch.cat((y, c))
 
 def show_img(img, title):
     print(f'Displaying image: {title}')    
@@ -174,19 +119,11 @@ class SuperResolutionNet(nn.Module):
 
     def forward(self, x):
 
-        print(x.shape)
-        img = img_from_y(x, x.shape)
-        show_img(img, 'Luminance only before super resolution')
-
         x = self.relu(self.conv1(x))
         x = self.relu(self.conv2(x))
         x = self.relu(self.conv3(x))
-        x = self.pixel_shuffle(self.conv4(x))
 
-        img = img_from_y(x, x.shape)
-        show_img(img, 'Luminance only after super resolution')
-
-        return x
+        return self.pixel_shuffle(self.conv4(x))
 
     def _initialize_weights(self):
         init.orthogonal_(self.conv1.weight, init.calculate_gain('relu'))
@@ -212,10 +149,6 @@ class SuperResolutionPipeline(torch.nn.Module):
     def net_model(self):
         return self.net
 
-
-
-# Test utility functions first
-#test_ycbcr2rgb()
 
 # Create the super-resolution model by using the above model definition.
 torch_model = SuperResolutionPipeline(upscale_factor=3)
@@ -247,6 +180,7 @@ data = base64.b64encode(buffer_img)
 img = torch_model(data)
 
 show_img(img, 'Final image')
+
 
 
 
